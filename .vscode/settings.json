@@ -1,0 +1,36 @@
+{
+    "python.linting.flake8Enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.linting.pylintArgs": [
+        "--max-args",
+        "20",
+        "--max-line-length",
+        "100",
+        "--max-locals",
+        "25",
+        "--max-branches",
+        "18",
+        "--max-attributes",
+        "20"
+    ],
+    "python.linting.flake8Args": [
+        "--max-line-length=100",
+        "--max-doc-length=100",
+        "--ignore=E203,W503",
+        "--per-file-ignores=__init__.py:F401"
+    ],
+    "python.formatting.blackArgs": [
+        "--line-length",
+        "100"
+    ],
+    "python.formatting.provider": "black",
+    "editor.formatOnSave": true,
+    "editor.rulers": [
+        80,
+        100
+    ],
+    "editor.renderControlCharacters": true,
+    "editor.renderWhitespace": "all",
+    "workbench.editor.highlightModifiedTabs": true,
+    "files.trimFinalNewlines": true
+}
