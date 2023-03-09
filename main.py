@@ -60,4 +60,3 @@ if __name__ == "__main__":
         finally:
             stream.stop_stream()
             stream.close()
-            proc.kill()

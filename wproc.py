@@ -1,6 +1,5 @@
 """Whispering process"""
 from multiprocessing import Queue, Value
-from typing import Union
 import os
 import numpy as np
 import torch
