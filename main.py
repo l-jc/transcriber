@@ -8,7 +8,7 @@ import pyaudiowpatch as pyaudio
 # from wproc import run as w_run
 from wproc import run as w_run
 from utils import get_default_wasapi_device
-from constants import DATA_FORMAT, RECORDER_BUFFER_SIZE
+from constants import DATA_FORMAT, RECORDER_BUFFER_SIZE, RECOGNIZER_STEP
 
 
 if __name__ == "__main__":
@@ -43,6 +43,9 @@ if __name__ == "__main__":
             """Callback for audio streaming"""
             output_queue.put(in_data)
             wave_file.writeframes(in_data)
+            if output_queue.qsize() > 2 * RECOGNIZER_STEP / RECORDER_BUFFER_SIZE:
+                print("RECORDING BUFFER OVERFLOW!!!")
+                raise KeyboardInterrupt
             return (in_data, pyaudio.paContinue)
 
         stream = p.open(
