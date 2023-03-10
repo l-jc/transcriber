@@ -1,6 +1,14 @@
 """Utilities"""
+from enum import Enum, auto
 import time
 import pyaudiowpatch as pyaudio
+
+
+class DeviceType(Enum):
+    """Audio device type"""
+
+    INPUT = auto()
+    OUTPUT = auto()
 
 
 class DeviceWrapper:
@@ -16,14 +24,16 @@ class DeviceWrapper:
         return f"{self.raw['name']} ({self.rate} Hz, {self.channels} chnl)"
 
 
-def get_default_wasapi_device(p_audio: pyaudio.PyAudio) -> DeviceWrapper:
-    """Get default speaker"""
-    wasapi_info = p_audio.get_host_api_info_by_type(pyaudio.paWASAPI)
-    sys_default_speaker = p_audio.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
+def get_default_wasapi_device(p_audio: pyaudio.PyAudio, _type: DeviceType) -> DeviceWrapper:
+    """Get default "input" device"""
     audio_device = None
-    if not sys_default_speaker["isLoopbackDevice"]:
+    wasapi_info = p_audio.get_host_api_info_by_type(pyaudio.paWASAPI)
+    key = "defaultOutputDevice" if _type == DeviceType.OUTPUT else "defaultInputDevice"
+    audio_device = p_audio.get_device_info_by_index(wasapi_info[key])
+    if _type == DeviceType.OUTPUT:
+        # Get loopback if default device is a speaker
         for loopback in p_audio.get_loopback_device_info_generator():
-            if sys_default_speaker["name"] in loopback["name"]:
+            if audio_device["name"] in loopback["name"]:
                 audio_device = loopback
                 break
     assert audio_device is not None

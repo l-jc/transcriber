@@ -7,7 +7,7 @@ import pyaudiowpatch as pyaudio
 
 # from wproc import run as w_run
 from wproc import run as w_run
-from utils import get_default_wasapi_device
+from utils import get_default_wasapi_device, DeviceType
 from constants import DATA_FORMAT, RECORDER_BUFFER_SIZE, RECOGNIZER_STEP
 
 
@@ -17,7 +17,7 @@ if __name__ == "__main__":
     with pyaudio.PyAudio() as p, wave.open("test.wav", "wb") as wave_file:
 
         # region get audio device
-        audio_device = get_default_wasapi_device(p)
+        audio_device = get_default_wasapi_device(p, DeviceType.INPUT)
         channels = audio_device.channels
         rate = audio_device.rate
         # endregion
@@ -32,14 +32,24 @@ if __name__ == "__main__":
         # region start whisper process
         output_queue = Queue()
         ready = Value("h", 0)
-        proc = Process(target=w_run, args=(output_queue, rate, channels, ready), daemon=True)
+        proc = Process(
+            target=w_run,
+            name="Whisper",
+            args=(
+                output_queue,
+                rate,
+                channels,
+                ready,
+            ),
+            daemon=True,
+        )
         proc.start()
         while ready.value == 0:
             time.sleep(1)
         # endregion
 
         # region start recording stream
-        def callback(in_data, frame_count, time_info, status):
+        def callback(in_data, frame_count: int, time_info: dict, status):
             """Callback for audio streaming"""
             output_queue.put(in_data)
             wave_file.writeframes(in_data)
