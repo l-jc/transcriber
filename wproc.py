@@ -15,6 +15,7 @@ from constants import (
     RECOGNIZER_STEP,
     N_FRAMES,
     HOP_LENGTH,
+    LANGUAGE,
 )
 from utils import MyTimer
 
@@ -30,7 +31,7 @@ def run(output_queue: Queue, rate: int, channels: int, ready: Value):
     )  # time per output token: 0.02 (seconds)
 
     print(f"Loaded model {MODEL_CARD}")
-    tokenizer = get_tokenizer(model.is_multilingual, language="en", task="transcribe")
+    tokenizer = get_tokenizer(model.is_multilingual, language=LANGUAGE, task="transcribe")
     TIME_BEGIN = tokenizer.timestamp_begin
     print("Got tokenizer")
     resampler = torchaudio.transforms.Resample(rate, SAMPLE_RATE, dtype=torch.float32).to(
@@ -78,8 +79,8 @@ def run(output_queue: Queue, rate: int, channels: int, ready: Value):
             segment = torch.cat([segment, waveform]) if segment is not None else waveform
             segment_for_model = whisper.pad_or_trim(segment)
             mel = whisper.log_mel_spectrogram(segment_for_model).to(model.device)
-            # options = whisper.DecodingOptions(language="en", prompt=prompt)
-            options = whisper.DecodingOptions(language="en")
+            # options = whisper.DecodingOptions(language=LANGUAGE, prompt=prompt)
+            options = whisper.DecodingOptions(language=LANGUAGE)
             result = whisper.decode(model, mel, options)
 
             tokens = result.tokens

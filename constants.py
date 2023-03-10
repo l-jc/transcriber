@@ -6,4 +6,8 @@ DATA_FORMAT = pyaudio.paInt16
 RECORDER_BUFFER_SIZE = 0.2  # seconds
 
 RECOGNIZER_STEP = 2  # seconds
-MODEL_CARD = "tiny.en"
+MODEL_CARD = "tiny"
+LANGUAGE = "en"
+
+if LANGUAGE == "en":
+    MODEL_CARD += ".en"
