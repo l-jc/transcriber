@@ -9,36 +9,38 @@ from whisper.utils import exact_div
 from whisper.tokenizer import get_tokenizer
 
 from constants import (
-    MODEL_CARD,
     SAMPLE_RATE,
     RECORDER_BUFFER_SIZE,
     RECOGNIZER_STEP,
     N_FRAMES,
     HOP_LENGTH,
-    LANGUAGE,
     NO_SPEECH_THRESHOLD,
     CHUNK_LENGTH,
 )
-from utils import MyTimer
+from utils import MyTimer, DeviceWrapper
 
 
-def run(output_queue: Queue, rate: int, channels: int, ready: Value):
+def run(
+    output_queue: Queue, ready: Value, audio_device: DeviceWrapper, model_card: str, language: str
+):
     """Subprocess to run rtt"""
     print(f"Whisper running P{os.getpid()}")
-    model = whisper.load_model(MODEL_CARD, device=torch.device(0))
+    if language == "en":
+        model_card += ".en"
+    model = whisper.load_model(model_card, device=torch.device(0))
 
     input_stride = exact_div(N_FRAMES, model.dims.n_audio_ctx)  # mel frames per output token: 2
     time_precision = (
         input_stride * HOP_LENGTH / SAMPLE_RATE
     )  # time per output token: 0.02 (seconds)
 
-    print(f"Loaded model {MODEL_CARD}")
-    tokenizer = get_tokenizer(model.is_multilingual, language=LANGUAGE, task="transcribe")
+    print(f"Loaded model {model_card}")
+    tokenizer = get_tokenizer(model.is_multilingual, language=language, task="transcribe")
     TIME_BEGIN = tokenizer.timestamp_begin
     print("Got tokenizer")
-    resampler = torchaudio.transforms.Resample(rate, SAMPLE_RATE, dtype=torch.float32).to(
-        model.device
-    )
+    resampler = torchaudio.transforms.Resample(
+        audio_device.rate, SAMPLE_RATE, dtype=torch.float32
+    ).to(model.device)
     print("Created resmpler")
     with ready.get_lock():
         ready.value = 1
@@ -67,7 +69,7 @@ def run(output_queue: Queue, rate: int, channels: int, ready: Value):
                 continue
 
             waveform = np.frombuffer(data, np.int16).flatten().astype(np.float32)
-            waveform = waveform[::channels]
+            waveform = waveform[:: audio_device.channels]
             waveform = torch.from_numpy(waveform).to(model.device) / 32768.0
             preproc_timer.stop()
             resample_timer.start()
@@ -82,7 +84,7 @@ def run(output_queue: Queue, rate: int, channels: int, ready: Value):
             segment_for_model = whisper.pad_or_trim(segment)
             mel = whisper.log_mel_spectrogram(segment_for_model).to(model.device)
             # options = whisper.DecodingOptions(language=LANGUAGE, prompt=prompt)
-            options = whisper.DecodingOptions(language=LANGUAGE)
+            options = whisper.DecodingOptions(language=language)
             result = whisper.decode(model, mel, options)
 
             if result.no_speech_prob > NO_SPEECH_THRESHOLD:

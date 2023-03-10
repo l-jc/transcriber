@@ -7,8 +7,19 @@ import pyaudiowpatch as pyaudio
 class DeviceType(Enum):
     """Audio device type"""
 
-    INPUT = auto()
-    OUTPUT = auto()
+    MICROPHONE = auto()
+    SPEAKER = auto()
+
+    def __str__(self) -> str:
+        return self.name.lower()
+
+    @staticmethod
+    def argparse(arg: str) -> "DeviceType":
+        arg = arg.upper()
+        try:
+            return DeviceType[arg]
+        except KeyError:
+            return arg
 
 
 class DeviceWrapper:
@@ -28,9 +39,9 @@ def get_default_wasapi_device(p_audio: pyaudio.PyAudio, _type: DeviceType) -> De
     """Get default "input" device"""
     audio_device = None
     wasapi_info = p_audio.get_host_api_info_by_type(pyaudio.paWASAPI)
-    key = "defaultOutputDevice" if _type == DeviceType.OUTPUT else "defaultInputDevice"
+    key = "defaultOutputDevice" if _type == DeviceType.SPEAKER else "defaultInputDevice"
     audio_device = p_audio.get_device_info_by_index(wasapi_info[key])
-    if _type == DeviceType.OUTPUT:
+    if _type == DeviceType.SPEAKER:
         # Get loopback if default device is a speaker
         for loopback in p_audio.get_loopback_device_info_generator():
             if audio_device["name"] in loopback["name"]:

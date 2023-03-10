@@ -5,12 +5,51 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Run Main",
+            "name": "Transcribe",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}\\main.py",
             "console": "integratedTerminal",
-            "justMyCode": false
+            "justMyCode": false,
+            "args": [
+                "--input",
+                "${input:pickInput}",
+                "--model",
+                "${input:pickModel}",
+                "--language",
+                "${input:pickLang}"
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "pickInput",
+            "type": "pickString",
+            "description": "Which audio device do you want to use?",
+            "options": [
+                "speaker",
+                "microphone"
+            ],
+            "default": "speaker"
+        },
+        {
+            "id": "pickModel",
+            "type": "pickString",
+            "description": "Which Whisper model do you want to use?",
+            "options": [
+                "tiny",
+                "base",
+                "small",
+                "medium",
+                "large"
+            ],
+            "default": "tiny"
+        },
+        {
+            "id": "pickLang",
+            "type": "promptString",
+            "description": "Which language do you want to transcribe?",
+            "default": "en"
         }
     ]
 }

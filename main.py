@@ -1,23 +1,48 @@
 """Main"""
+import argparse
 from multiprocessing import Queue, Process, Value
 import os
 import time
 import wave
 import pyaudiowpatch as pyaudio
+from whisper.tokenizer import LANGUAGES
 
-# from wproc import run as w_run
 from wproc import run as w_run
 from utils import get_default_wasapi_device, DeviceType
 from constants import DATA_FORMAT, RECORDER_BUFFER_SIZE, RECOGNIZER_STEP
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser("Transcriber")
+    parser.add_argument(
+        "--input",
+        required=True,
+        type=DeviceType.argparse,
+        choices=tuple(DeviceType),
+        help="The input device to use",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="tiny",
+        choices=("tiny", "base", "small", "medium", "large"),
+        help="Whisper model type",
+    )
+    parser.add_argument(
+        "--language",
+        type=str,
+        default=None,
+        choices=tuple(LANGUAGES.keys()),
+        help="Language to transcribe. Defaults to multilingual",
+    )
+    args = parser.parse_args()
+
     print(f"Recorder running P{os.getpid()}")
 
     with pyaudio.PyAudio() as p, wave.open("test.wav", "wb") as wave_file:
 
         # region get audio device
-        audio_device = get_default_wasapi_device(p, DeviceType.INPUT)
+        audio_device = get_default_wasapi_device(p, args.input)
         channels = audio_device.channels
         rate = audio_device.rate
         # endregion
@@ -35,12 +60,7 @@ if __name__ == "__main__":
         proc = Process(
             target=w_run,
             name="Whisper",
-            args=(
-                output_queue,
-                rate,
-                channels,
-                ready,
-            ),
+            args=(output_queue, ready, audio_device, args.model, args.language),
             daemon=True,
         )
         proc.start()
