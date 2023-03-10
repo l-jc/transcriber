@@ -1,15 +1,18 @@
 """Main"""
 from multiprocessing import Queue, Process, Value
+import os
 import time
 import wave
 import pyaudiowpatch as pyaudio
 
+# from wproc import run as w_run
 from wproc import run as w_run
 from utils import get_default_wasapi_device
-from constants import DATA_FORMAT, BUFFER_SIZE
+from constants import DATA_FORMAT, RECORDER_BUFFER_SIZE
 
 
 if __name__ == "__main__":
+    print(f"Recorder running P{os.getpid()}")
 
     with pyaudio.PyAudio() as p, wave.open("test.wav", "wb") as wave_file:
 
@@ -29,7 +32,7 @@ if __name__ == "__main__":
         # region start whisper process
         output_queue = Queue()
         ready = Value("h", 0)
-        proc = Process(target=w_run, args=(output_queue, rate, ready), daemon=True)
+        proc = Process(target=w_run, args=(output_queue, rate, channels, ready), daemon=True)
         proc.start()
         while ready.value == 0:
             time.sleep(1)
@@ -39,13 +42,14 @@ if __name__ == "__main__":
         def callback(in_data, frame_count, time_info, status):
             """Callback for audio streaming"""
             output_queue.put(in_data)
+            wave_file.writeframes(in_data)
             return (in_data, pyaudio.paContinue)
 
         stream = p.open(
             format=DATA_FORMAT,
             channels=channels,
             rate=rate,
-            frames_per_buffer=int(rate * BUFFER_SIZE),
+            frames_per_buffer=int(rate * RECORDER_BUFFER_SIZE),
             input=True,
             input_device_index=audio_device.index,
             stream_callback=callback,

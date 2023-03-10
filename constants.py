@@ -1,8 +1,9 @@
 """Constants used in project"""
 import pyaudiowpatch as pyaudio
+from whisper.audio import SAMPLE_RATE
 
 DATA_FORMAT = pyaudio.paInt16
-BUFFER_SIZE = 1  # seconds
-STD_RATE = 16_000
-MODEL_INPUT_SIZE = 12  # seconds
+RECORDER_BUFFER_SIZE = 0.5  # seconds
+
+RECOGNIZER_STEP = 2  # seconds
 MODEL_CARD = "tiny"
