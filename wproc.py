@@ -16,6 +16,8 @@ from constants import (
     N_FRAMES,
     HOP_LENGTH,
     LANGUAGE,
+    NO_SPEECH_THRESHOLD,
+    CHUNK_LENGTH,
 )
 from utils import MyTimer
 
@@ -83,6 +85,12 @@ def run(output_queue: Queue, rate: int, channels: int, ready: Value):
             options = whisper.DecodingOptions(language=LANGUAGE)
             result = whisper.decode(model, mel, options)
 
+            if result.no_speech_prob > NO_SPEECH_THRESHOLD:
+                seg_start_t += segment.size(0) / SAMPLE_RATE
+                segment = None
+                print("NO SPEECH", end="\r")
+                continue
+
             tokens = result.tokens
 
             # find consecutive time
@@ -94,20 +102,30 @@ def run(output_queue: Queue, rate: int, channels: int, ready: Value):
                     break
             decoding_timer.stop()
 
-            if consecutive_t:
-                elapsed = (tokens[consecutive_t] - TIME_BEGIN) * time_precision
+            commit_seconds = 0
+            if segment.size(0) >= SAMPLE_RATE * (CHUNK_LENGTH - RECOGNIZER_STEP):
+                # if segment is longer than ? seconds,
+                commit_seconds = segment.size(0) / SAMPLE_RATE
+            elif consecutive_t:
+                commit_seconds = (tokens[consecutive_t] - TIME_BEGIN) * time_precision
+
+            if commit_seconds > 0:
                 # discard segment before seg_start_t
-                segment = segment[int(SAMPLE_RATE * elapsed) :]
-                output = tokenizer.decode(tokens[: consecutive_t + 1])
+                segment = segment[int(SAMPLE_RATE * commit_seconds) :]
+                if consecutive_t is not None:
+                    output = tokenizer.decode(tokens[: consecutive_t + 1])
+                else:
+                    output = result.text
                 prompt = output
-                prefix = f"[{seg_start_t:06.2f} -- {(seg_start_t+elapsed):06.2f}] "
+                prefix = f"[{seg_start_t:06.2f} -- {(seg_start_t+commit_seconds):06.2f}] "
                 output = prefix + output
-                seg_start_t += elapsed
+                seg_start_t += commit_seconds
                 width = os.get_terminal_size().columns
                 padding = max(0, width - len(output) - 4)
                 print("    " + output + " " * padding)
             else:
-                output = result.text
+                segment_seconds = segment.size(0) / SAMPLE_RATE
+                output = f"{segment_seconds:.2f} seconds - " + result.text
                 width = os.get_terminal_size().columns
                 padding = max(0, width - len(output))
                 # print(" " * padding + output, end="\r")
