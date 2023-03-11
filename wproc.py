@@ -1,5 +1,6 @@
 """Whispering process"""
 from multiprocessing import Queue, Value
+from typing import Optional
 import os
 import numpy as np
 import torch
@@ -19,9 +20,13 @@ from constants import (
 )
 from utils import MyTimer, DeviceWrapper
 
-
+# TODO: use a smaller model for language detection and speech activation
 def run(
-    output_queue: Queue, ready: Value, audio_device: DeviceWrapper, model_card: str, language: str
+    output_queue: Queue,
+    ready: Value,
+    audio_device: DeviceWrapper,
+    model_card: str,
+    language: Optional[str],
 ):
     """Subprocess to run rtt"""
     print(f"Whisper running P{os.getpid()}")
@@ -52,8 +57,9 @@ def run(
     data = b""
     dsize = 0
     segment = None
-    prompt = None
+    # prompt = None
     seg_start_t = 0
+    should_detect_language = language is None
     try:
         while True:
             # get data from buffer
@@ -93,20 +99,41 @@ def run(
                 print("NO SPEECH", end="\r")
                 continue
 
+            language = result.language
             tokens = result.tokens
 
             # find consecutive time
             consecutive_t = None
+            last_t = None
             # for t in range(1, len(tokens)):  # first segs
             for t in reversed(range(1, len(tokens))):  # all segs
+                if last_t is None and tokens[t] >= TIME_BEGIN:
+                    last_t = t
                 if tokens[t] >= tokens[t - 1] >= TIME_BEGIN:
                     consecutive_t = t - 1
                     break
+
+            # if segment is too long, detect no speech in the end of segment
+            tail_is_silent = False
+            tail = None
+            if last_t is not None and (tokens[last_t] - TIME_BEGIN) * time_precision >= 3:
+                tail = segment[int((tokens[last_t] - TIME_BEGIN) * time_precision * SAMPLE_RATE) :]
+            elif segment.size(0) >= 15 * SAMPLE_RATE:
+                tail = segment[3 * SAMPLE_RATE :]
+            if tail is not None:
+                tail_for_model = whisper.pad_or_trim(tail)
+                tail_mel = whisper.log_mel_spectrogram(tail_for_model).to(model.device)
+                tail_result = whisper.decode(
+                    model, tail_mel, whisper.DecodingOptions(language=language)
+                )
+                if tail_result.no_speech_prob > NO_SPEECH_THRESHOLD:
+                    tail_is_silent = True
+
             decoding_timer.stop()
 
             commit_seconds = 0
-            if segment.size(0) >= SAMPLE_RATE * (CHUNK_LENGTH - RECOGNIZER_STEP):
-                # if segment is longer than ? seconds,
+            if segment.size(0) >= SAMPLE_RATE * (CHUNK_LENGTH - RECOGNIZER_STEP) or tail_is_silent:
+                # if segment is longer than ? seconds or tail is silent
                 commit_seconds = segment.size(0) / SAMPLE_RATE
             elif consecutive_t:
                 commit_seconds = (tokens[consecutive_t] - TIME_BEGIN) * time_precision
@@ -118,16 +145,20 @@ def run(
                     output = tokenizer.decode(tokens[: consecutive_t + 1])
                 else:
                     output = result.text
-                prompt = output
-                prefix = f"[{seg_start_t:06.2f} -- {(seg_start_t+commit_seconds):06.2f}] "
+                # prompt = output
+                prefix = (
+                    f"[{seg_start_t:06.2f} -- {(seg_start_t+commit_seconds):06.2f}] ({language}) "
+                )
                 output = prefix + output
                 seg_start_t += commit_seconds
                 width = os.get_terminal_size().columns
                 padding = max(0, width - len(output) - 4)
                 print("    " + output + " " * padding)
+                if should_detect_language:
+                    language = None
             else:
                 segment_seconds = segment.size(0) / SAMPLE_RATE
-                output = f"{segment_seconds:.2f} seconds - " + result.text
+                output = f"({language}) {segment_seconds:.2f} seconds - " + result.text
                 width = os.get_terminal_size().columns
                 padding = max(0, width - len(output))
                 # print(" " * padding + output, end="\r")

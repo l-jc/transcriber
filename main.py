@@ -32,7 +32,7 @@ if __name__ == "__main__":
         "--language",
         type=str,
         default=None,
-        choices=tuple(LANGUAGES.keys()),
+        choices=tuple(LANGUAGES.keys()) + ("",),
         help="Language to transcribe. Defaults to multilingual",
     )
     args = parser.parse_args()
@@ -60,7 +60,7 @@ if __name__ == "__main__":
         proc = Process(
             target=w_run,
             name="Whisper",
-            args=(output_queue, ready, audio_device, args.model, args.language),
+            args=(output_queue, ready, audio_device, args.model, args.language or None),
             daemon=True,
         )
         proc.start()
@@ -73,7 +73,7 @@ if __name__ == "__main__":
             """Callback for audio streaming"""
             output_queue.put(in_data)
             wave_file.writeframes(in_data)
-            if output_queue.qsize() > 2 * RECOGNIZER_STEP / RECORDER_BUFFER_SIZE:
+            if output_queue.qsize() > 4 * RECOGNIZER_STEP / RECORDER_BUFFER_SIZE:
                 print("RECORDING BUFFER OVERFLOW!!!")
                 raise KeyboardInterrupt
             return (in_data, pyaudio.paContinue)
