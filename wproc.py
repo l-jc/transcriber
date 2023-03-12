@@ -1,4 +1,5 @@
 # pylint: disable=no-member
+# pylint: disable=not-callable
 """
 Whisper process
 
@@ -17,6 +18,7 @@ import os
 import numpy as np
 import torch
 import torchaudio
+from torch.utils.tensorboard import SummaryWriter
 import whisper
 from whisper.utils import exact_div
 from whisper.tokenizer import get_tokenizer, Tokenizer
@@ -39,7 +41,9 @@ from constants import (
 from utils import MyTimer, DeviceWrapper, format_t, printline
 
 
-def get_audio_from_queue(output_queue: Queue, channels: int, device: torch.device) -> torch.Tensor:
+def get_audio_from_queue(
+    output_queue: Queue, channels: int, device: torch.device
+) -> Tuple[torch.Tensor, int]:
     """get audio from buffer"""
     data = b""
     n_buffer = 0
@@ -50,7 +54,7 @@ def get_audio_from_queue(output_queue: Queue, channels: int, device: torch.devic
     waveform = np.frombuffer(data, np.int16).flatten().astype(np.float32)
     waveform = waveform[::channels]
     waveform = torch.from_numpy(waveform).to(device) / 32768.0
-    return waveform
+    return waveform, n_buffer
 
 
 def commit(
@@ -127,7 +131,10 @@ def run(
     resampler = torchaudio.transforms.Resample(
         audio_device.rate, SAMPLE_RATE, dtype=torch.float32
     ).to(model.device)
+    resampler(torch.zeros(audio_device.rate, dtype=torch.float32, device=torch.device(0)))
     print("Created resmpler")
+
+    writer = SummaryWriter()
 
     # Tell recorder ready to record
     with ready.get_lock():
@@ -142,23 +149,29 @@ def run(
     # prompt = None
     seg_start_t = 0
     should_detect_language = language is None
+    n_iter = 0
     try:
         while True:
+            n_iter += 1
             preproc_timer.start()
             # region get data from audio buffer
-            waveform = get_audio_from_queue(output_queue, audio_device.channels, model.device)
+            waveform, n_buffer = get_audio_from_queue(
+                output_queue, audio_device.channels, model.device
+            )
+            writer.add_scalar("stats/buffer_size", n_buffer * RECORDER_BUFFER_SIZE, n_iter)
             # endregion
             preproc_timer.stop()
 
             resample_timer.start()
             # region resample to whisper audio sample rate
-            waveform = resampler(waveform)  # pylint: disable=not-callable
+            waveform = resampler(waveform)
             # endregion
             resample_timer.stop()
 
             decoding_timer.start()
             # region decode segment
             segment = torch.cat([segment, waveform]) if segment is not None else waveform
+            writer.add_scalar("stats/segment_length", segment.size(0) / SAMPLE_RATE, n_iter)
             segment_for_model = whisper.pad_or_trim(segment)
             mel = whisper.log_mel_spectrogram(segment_for_model).to(model.device)
             for temperature in TEMPERATURES:
@@ -209,9 +222,15 @@ def run(
             # endregion
             output_timer.stop()
 
+            writer.add_scalar("timing/preprocess", preproc_timer.avg(), n_iter)
+            writer.add_scalar("timing/resample", resample_timer.avg(), n_iter)
+            writer.add_scalar("timing/decoding", decoding_timer.avg(), n_iter)
+            writer.add_scalar("timing/output", output_timer.avg(), n_iter)
+
     except KeyboardInterrupt:
         print("\n\n")
         preproc_timer.report()
         resample_timer.report()
         decoding_timer.report()
         output_timer.report()
+        writer.close()

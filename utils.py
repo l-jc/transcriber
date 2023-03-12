@@ -82,10 +82,15 @@ class MyTimer:
         self.n_calls = 0
         self._start = 0
 
+    def avg(self):
+        """Get average"""
+        avg = self.duration / (self.n_calls + 1e-6)
+        self.reset()
+        return avg
+
     def report(self):
         """Print timer metrics"""
-        avg = self.duration / (self.n_calls + 1e-6)
-        print(f"Avg. Time for {self.name}: {avg*1000:.2f} ms.")
+        print(f"Avg. Time for {self.name}: {self.avg()*1000:.2f} ms.")
 
 
 @functools.lru_cache(maxsize=10)
