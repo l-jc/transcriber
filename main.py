@@ -3,9 +3,11 @@ import argparse
 from multiprocessing import Queue, Process, Value
 import os
 import time
+import contextlib
 import wave
 import pyaudiowpatch as pyaudio
 from whisper.tokenizer import LANGUAGES
+from whisper.utils import str2bool
 
 from wproc import run as w_run
 from utils import get_default_wasapi_device, DeviceType
@@ -13,6 +15,7 @@ from constants import DATA_FORMAT, RECORDER_BUFFER_SIZE, RECOGNIZER_STEP
 
 
 if __name__ == "__main__":
+    # region argparse
     parser = argparse.ArgumentParser("Transcriber")
     parser.add_argument(
         "--input",
@@ -42,11 +45,20 @@ if __name__ == "__main__":
         choices=["transcribe", "translate"],
         help="Task to perform, transcribe or translate.",
     )
+    parser.add_argument(
+        "--save_audio",
+        type=str2bool,
+        default=True,
+        help="whether to save audio to file; True by default",
+    )
     args = parser.parse_args()
+    # endregion
 
     print(f"Recorder running P{os.getpid()}")
 
-    with pyaudio.PyAudio() as p, wave.open("test.wav", "wb") as wave_file:
+    wave_file_ctx = wave.open("test.wav", "wb") if args.save_audio else contextlib.nullcontext()
+
+    with pyaudio.PyAudio() as p, wave_file_ctx as wave_file:
 
         # region get audio device
         audio_device = get_default_wasapi_device(p, args.input)
@@ -55,10 +67,11 @@ if __name__ == "__main__":
         # endregion
 
         # region setup recording file
-        wave_file: wave.Wave_write
-        wave_file.setnchannels(channels)
-        wave_file.setsampwidth(pyaudio.get_sample_size(DATA_FORMAT))
-        wave_file.setframerate(rate)
+        if wave_file is not None:
+            wave_file: wave.Wave_write
+            wave_file.setnchannels(channels)
+            wave_file.setsampwidth(pyaudio.get_sample_size(DATA_FORMAT))
+            wave_file.setframerate(rate)
         # endregion
 
         # region start whisper process
@@ -79,7 +92,8 @@ if __name__ == "__main__":
         def callback(in_data, frame_count: int, time_info: dict, status):
             """Callback for audio streaming"""
             output_queue.put(in_data)
-            wave_file.writeframes(in_data)
+            if wave_file is not None:
+                wave_file.writeframes(in_data)
             if output_queue.qsize() > 4 * RECOGNIZER_STEP / RECORDER_BUFFER_SIZE:
                 print("RECORDING BUFFER OVERFLOW!!!")
                 raise KeyboardInterrupt

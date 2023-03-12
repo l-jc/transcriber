@@ -19,7 +19,9 @@
                 "--language",
                 "${input:pickLang}",
                 "--task",
-                "${input:pickTask}"
+                "${input:pickTask}",
+                "--save_audio",
+                "${input:pickSaveAudio}"
             ]
         }
     ],
@@ -63,5 +65,15 @@
             ],
             "default": "transcribe"
         },
+        {
+            "id": "pickSaveAudio",
+            "type": "pickString",
+            "description": "Do you want to save audio?",
+            "options": [
+                "True",
+                "False"
+            ],
+            "default": "True"
+        }
     ]
 }
