@@ -2,6 +2,13 @@
 
 Real time transcription on Windows powered by Whisper of OpenAI.
 
+
+Install dependencies
+```powershell
+c:\...\transcriber>conda env create -f environment.yaml
+```
+
+Run transcriber
 ```powershell
 c:\...\transcriber>python main.py -h
 usage: Transcriber [-h] --input {microphone,speaker} [--model {tiny,base,small,medium,large}]

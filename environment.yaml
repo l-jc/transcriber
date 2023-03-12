@@ -1,0 +1,19 @@
+name: transcriber
+channels:
+    - pytorch
+    - nvidia
+    - conda-forge
+dependencies:
+    - python=3.9
+    - numpy
+    - pytorch=1.13.1
+    - pytorch-cuda=11.7
+    - torchaudio=0.13.1
+    - pylint
+    - black
+    - flake8
+    - pip
+    - pip:
+        - soundfile
+        - openai-whisper
+        - PyAudioWPatch=0.2.12.5
