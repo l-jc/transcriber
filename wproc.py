@@ -1,3 +1,4 @@
+# pylint: disable=no-member
 """
 Whisper process
 
@@ -63,14 +64,12 @@ def commit(
     if result.no_speech_prob > NO_SPEECH_THRESHOLD and result.avg_logprob < LOGPROB_THRESHOLD:
         return segment.size(0), ""
 
-    tokens = torch.tensor(result.tokens)  # pylint: disable=no-member
+    tokens = torch.tensor(result.tokens)
     timestamp_tokens: torch.Tensor = tokens.ge(tokenizer.timestamp_begin)
-    consecutive = torch.where(  # pylint: disable=no-member
-        timestamp_tokens[:-1] & timestamp_tokens[1:]
-    )[0].add_(1)
+    consecutive = torch.where(timestamp_tokens[:-1] & timestamp_tokens[1:])[0].add_(1)
     if len(consecutive) > 1:  # if the output contains two consecutive timestamp tokens
         # option a. commit first segment
-        # t = tokens[consecutive[0]] - tokenizer.timestamp_begin  # pylint: disable=invalid_name
+        # t = tokens[consecutive[0]] - tokenizer.timestamp_begin
         # output = tokenizer.decode(tokens[: consecutive[0]])
         # option b. commit all segment
         t = tokens[consecutive[-1]] - tokenizer.timestamp_begin
@@ -113,7 +112,8 @@ def run(
         model_card += ".en"
     model = whisper.load_model(model_card, device=torch.device(0))
     vad_model = whisper.load_model(
-        "tiny.en" if language == "en" else "tiny", device=torch.device(0)
+        "tiny.en" if language == "en" else "tiny",
+        device=torch.device(0),
     )
 
     input_stride = exact_div(N_FRAMES, model.dims.n_audio_ctx)  # mel frames per output token: 2
@@ -151,7 +151,7 @@ def run(
 
             resample_timer.start()
             # region resample to whisper audio sample rate
-            waveform = resampler(waveform)
+            waveform = resampler(waveform)  # pylint: disable=not-callable
             # endregion
             resample_timer.stop()
 
@@ -197,7 +197,7 @@ def run(
                     )
                 else:
                     printline(
-                        f"    [{format_t(seg_start_t)} -- {format_t(seg_start_t+seconds_to_commit)}] "
+                        f"  [{format_t(seg_start_t)} -- {format_t(seg_start_t+seconds_to_commit)}] "
                         f"({language}) {output}"
                     )
                 seg_start_t += seconds_to_commit

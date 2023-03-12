@@ -17,6 +17,7 @@ class DeviceType(Enum):
 
     @staticmethod
     def argparse(arg: str) -> "DeviceType":
+        """hack for argparse command line arguments"""
         arg = arg.upper()
         try:
             return DeviceType[arg]
@@ -56,6 +57,8 @@ def get_default_wasapi_device(p_audio: pyaudio.PyAudio, _type: DeviceType) -> De
 
 
 class MyTimer:
+    """Timer class"""
+
     def __init__(self, name) -> None:
         self.name = name
         self.duration = 0
@@ -63,20 +66,24 @@ class MyTimer:
         self._start = 0
 
     def start(self):
+        """Start timer"""
         self._start = time.perf_counter()
 
     def stop(self):
+        """Stop timer"""
         assert self._start > 0
         self.duration += time.perf_counter() - self._start
         self._start = 0
         self.n_calls += 1
 
     def reset(self):
+        """Reset timer"""
         self.duration = 0
         self.n_calls = 0
         self._start = 0
 
     def report(self):
+        """Print timer metrics"""
         avg = self.duration / (self.n_calls + 1e-6)
         print(f"Avg. Time for {self.name}: {avg*1000:.2f} ms.")
 
