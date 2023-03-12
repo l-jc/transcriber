@@ -1,4 +1,5 @@
 # pylint: disable=no-member
+# pylint: disable=not-callable
 """
 Whisper process
 
@@ -127,6 +128,7 @@ def run(
     resampler = torchaudio.transforms.Resample(
         audio_device.rate, SAMPLE_RATE, dtype=torch.float32
     ).to(model.device)
+    resampler(torch.zeros(audio_device.rate, dtype=torch.float32, device=torch.device(0)))
     print("Created resmpler")
 
     # Tell recorder ready to record
@@ -152,7 +154,7 @@ def run(
 
             resample_timer.start()
             # region resample to whisper audio sample rate
-            waveform = resampler(waveform)  # pylint: disable=not-callable
+            waveform = resampler(waveform)
             # endregion
             resample_timer.stop()
 
