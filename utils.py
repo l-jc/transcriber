@@ -1,5 +1,7 @@
 """Utilities"""
+import os
 from enum import Enum, auto
+import functools
 import time
 import pyaudiowpatch as pyaudio
 
@@ -77,3 +79,22 @@ class MyTimer:
     def report(self):
         avg = self.duration / (self.n_calls + 1e-6)
         print(f"Avg. Time for {self.name}: {avg*1000:.2f} ms.")
+
+
+@functools.lru_cache(maxsize=10)
+def format_t(seconds: float) -> str:
+    """foramt seconds to minutes:seconds"""
+    seconds = round(seconds)
+    m = seconds // 60
+    s = seconds % 60
+    return f"{m:02d}:{s:02d}"
+
+
+def printline(output: str, end: str = None) -> None:
+    """Print a entire line in terminal"""
+    width = os.get_terminal_size().columns
+    padding = max(0, width - len(output))
+    output += " " * padding
+    if len(output) > width:
+        output = output[: width - 3] + "..."
+    print(output, end=end)

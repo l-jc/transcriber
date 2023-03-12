@@ -1,13 +1,25 @@
-"""Whispering process"""
+"""
+Whisper process
+
+1. get audio buffer (at least x seconds) from queue
+2. append to current segment
+3. decode current segment
+4. commit or don't commit
+    a. no speech -> commit all
+    b. complete segment(s) -> commit first/all segments
+    c. too long -> commit all
+    d. silent for x seconds -> commit all
+"""
 from multiprocessing import Queue, Value
-from typing import Optional
+from typing import Optional, Tuple
 import os
 import numpy as np
 import torch
 import torchaudio
 import whisper
 from whisper.utils import exact_div
-from whisper.tokenizer import get_tokenizer
+from whisper.tokenizer import get_tokenizer, Tokenizer
+from whisper.model import Whisper
 
 from constants import (
     SAMPLE_RATE,
@@ -16,11 +28,78 @@ from constants import (
     N_FRAMES,
     HOP_LENGTH,
     NO_SPEECH_THRESHOLD,
+    LOGPROB_THRESHOLD,
+    DETECT_TAIL,
     CHUNK_LENGTH,
+    COMPRESSION_RATIO_THRESHOLD,
+    TEMPERATURES,
+    BEAM_SIZE,
 )
-from utils import MyTimer, DeviceWrapper
+from utils import MyTimer, DeviceWrapper, format_t, printline
 
-# TODO: use a smaller model for language detection and speech activation
+
+def get_audio_from_queue(output_queue: Queue, channels: int, device: torch.device) -> torch.Tensor:
+    """get audio from buffer"""
+    data = b""
+    n_buffer = 0
+    while n_buffer < RECOGNIZER_STEP / RECORDER_BUFFER_SIZE:
+        while not output_queue.empty():
+            data += output_queue.get()
+            n_buffer += 1
+    waveform = np.frombuffer(data, np.int16).flatten().astype(np.float32)
+    waveform = waveform[::channels]
+    waveform = torch.from_numpy(waveform).to(device) / 32768.0
+    return waveform
+
+
+def commit(
+    result: whisper.DecodingResult,
+    segment: torch.Tensor,
+    tokenizer: Tokenizer,
+    inverted_time_precision: float,
+    vad_model: Whisper,
+) -> Tuple[int, str]:
+    """Return the number of samples to commit and the committed text"""
+    if result.no_speech_prob > NO_SPEECH_THRESHOLD and result.avg_logprob < LOGPROB_THRESHOLD:
+        return segment.size(0), ""
+
+    tokens = torch.tensor(result.tokens)  # pylint: disable=no-member
+    timestamp_tokens: torch.Tensor = tokens.ge(tokenizer.timestamp_begin)
+    consecutive = torch.where(  # pylint: disable=no-member
+        timestamp_tokens[:-1] & timestamp_tokens[1:]
+    )[0].add_(1)
+    if len(consecutive) > 1:  # if the output contains two consecutive timestamp tokens
+        # option a. commit first segment
+        # t = tokens[consecutive[0]] - tokenizer.timestamp_begin  # pylint: disable=invalid_name
+        # output = tokenizer.decode(tokens[: consecutive[0]])
+        # option b. commit all segment
+        t = tokens[consecutive[-1]] - tokenizer.timestamp_begin
+        output = tokenizer.decode(tokens[: consecutive[-1]])
+        return exact_div(t.item() * SAMPLE_RATE, inverted_time_precision), output
+
+    if segment.size(0) > (CHUNK_LENGTH - RECOGNIZER_STEP) * SAMPLE_RATE:
+        return segment.size(0), result.text
+
+    # use tail to detect
+    tail_is_silent = False
+    if segment.size(0) > DETECT_TAIL * SAMPLE_RATE:
+        tail = segment[min(3, DETECT_TAIL // 2) * SAMPLE_RATE :]
+        mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(tail))
+        tail_result = whisper.decode(
+            vad_model, mel, whisper.DecodingOptions(language=result.language)
+        )
+        if (
+            tail_result.no_speech_prob > NO_SPEECH_THRESHOLD
+            and result.avg_logprob < LOGPROB_THRESHOLD
+        ):
+            tail_is_silent = True
+
+    if tail_is_silent:
+        return segment.size(0), result.text
+
+    return 0, result.text
+
+
 def run(
     output_queue: Queue,
     ready: Value,
@@ -33,143 +112,104 @@ def run(
     if language == "en":
         model_card += ".en"
     model = whisper.load_model(model_card, device=torch.device(0))
+    vad_model = whisper.load_model(
+        "tiny.en" if language == "en" else "tiny", device=torch.device(0)
+    )
 
     input_stride = exact_div(N_FRAMES, model.dims.n_audio_ctx)  # mel frames per output token: 2
-    time_precision = (
-        input_stride * HOP_LENGTH / SAMPLE_RATE
-    )  # time per output token: 0.02 (seconds)
-
+    inverted_time_precision = exact_div(SAMPLE_RATE, input_stride * HOP_LENGTH)
     print(f"Loaded model {model_card}")
+
     tokenizer = get_tokenizer(model.is_multilingual, language=language, task="transcribe")
-    TIME_BEGIN = tokenizer.timestamp_begin
     print("Got tokenizer")
+
     resampler = torchaudio.transforms.Resample(
         audio_device.rate, SAMPLE_RATE, dtype=torch.float32
     ).to(model.device)
     print("Created resmpler")
+
+    # Tell recorder ready to record
     with ready.get_lock():
         ready.value = 1
 
     print("Start transcription")
     preproc_timer = MyTimer("preprocessing")
-    decoding_timer = MyTimer("decoding")
     resample_timer = MyTimer("resample")
-    data = b""
-    dsize = 0
+    decoding_timer = MyTimer("decoding")
+    output_timer = MyTimer("output")
     segment = None
     # prompt = None
     seg_start_t = 0
     should_detect_language = language is None
     try:
         while True:
-            # get data from buffer
-            # is there's more than 2 seconds of new data, process,
-            # otherwise continue
             preproc_timer.start()
-            while not output_queue.empty():
-                data += output_queue.get()
-                dsize += 1
-
-            if dsize < RECOGNIZER_STEP / RECORDER_BUFFER_SIZE:
-                preproc_timer.stop()
-                continue
-
-            waveform = np.frombuffer(data, np.int16).flatten().astype(np.float32)
-            waveform = waveform[:: audio_device.channels]
-            waveform = torch.from_numpy(waveform).to(model.device) / 32768.0
+            # region get data from audio buffer
+            waveform = get_audio_from_queue(output_queue, audio_device.channels, model.device)
+            # endregion
             preproc_timer.stop()
+
             resample_timer.start()
+            # region resample to whisper audio sample rate
             waveform = resampler(waveform)
+            # endregion
             resample_timer.stop()
 
-            data = b""
-            dsize = 0
-
             decoding_timer.start()
+            # region decode segment
             segment = torch.cat([segment, waveform]) if segment is not None else waveform
             segment_for_model = whisper.pad_or_trim(segment)
             mel = whisper.log_mel_spectrogram(segment_for_model).to(model.device)
-            # options = whisper.DecodingOptions(language=LANGUAGE, prompt=prompt)
-            options = whisper.DecodingOptions(language=language)
-            result = whisper.decode(model, mel, options)
-
-            if result.no_speech_prob > NO_SPEECH_THRESHOLD:
-                seg_start_t += segment.size(0) / SAMPLE_RATE
-                segment = None
-                print("NO SPEECH", end="\r")
-                continue
-
-            language = result.language
-            tokens = result.tokens
-
-            # find consecutive time
-            consecutive_t = None
-            last_t = None
-            # for t in range(1, len(tokens)):  # first segs
-            for t in reversed(range(1, len(tokens))):  # all segs
-                if last_t is None and tokens[t] >= TIME_BEGIN:
-                    last_t = t
-                if tokens[t] >= tokens[t - 1] >= TIME_BEGIN:
-                    consecutive_t = t - 1
-                    break
-
-            # if segment is too long, detect no speech in the end of segment
-            tail_is_silent = False
-            tail = None
-            if last_t is not None and (tokens[last_t] - TIME_BEGIN) * time_precision >= 3:
-                tail = segment[int((tokens[last_t] - TIME_BEGIN) * time_precision * SAMPLE_RATE) :]
-            elif segment.size(0) >= 15 * SAMPLE_RATE:
-                tail = segment[3 * SAMPLE_RATE :]
-            if tail is not None:
-                tail_for_model = whisper.pad_or_trim(tail)
-                tail_mel = whisper.log_mel_spectrogram(tail_for_model).to(model.device)
-                tail_result = whisper.decode(
-                    model, tail_mel, whisper.DecodingOptions(language=language)
+            for temperature in TEMPERATURES:
+                options = whisper.DecodingOptions(
+                    language=language,
+                    temperature=temperature,
+                    beam_size=BEAM_SIZE if temperature != 0.0 else None,
+                    # prompt=prompt,
                 )
-                if tail_result.no_speech_prob > NO_SPEECH_THRESHOLD:
-                    tail_is_silent = True
-
+                result = whisper.decode(model, mel, options)
+                if (
+                    result.compression_ratio < COMPRESSION_RATIO_THRESHOLD
+                    or result.no_speech_prob > NO_SPEECH_THRESHOLD
+                ):
+                    break
+            # endregion
             decoding_timer.stop()
 
-            commit_seconds = 0
-            if segment.size(0) >= SAMPLE_RATE * (CHUNK_LENGTH - RECOGNIZER_STEP) or tail_is_silent:
-                # if segment is longer than ? seconds or tail is silent
-                commit_seconds = segment.size(0) / SAMPLE_RATE
-            elif consecutive_t:
-                commit_seconds = (tokens[consecutive_t] - TIME_BEGIN) * time_precision
+            output_timer.start()
+            # region commit
+            samples_to_commit, output = commit(
+                result, segment, tokenizer, inverted_time_precision, vad_model
+            )
+            if language is None:
+                language = result.language
+            if samples_to_commit > 0 and should_detect_language:
+                language = None
+            # endregion
 
-            if commit_seconds > 0:
-                # discard segment before seg_start_t
-                segment = segment[int(SAMPLE_RATE * commit_seconds) :]
-                if consecutive_t is not None:
-                    output = tokenizer.decode(tokens[: consecutive_t + 1])
+            # region print output and update segment
+            if samples_to_commit > 0:
+                seconds_to_commit = samples_to_commit / SAMPLE_RATE
+                if output == "":
+                    printline(
+                        f"{segment.size(0)/SAMPLE_RATE:.2f}s NO SPEECH {result.no_speech_prob:.2f}",
+                        end="\r",
+                    )
                 else:
-                    output = result.text
-                # prompt = output
-                prefix = (
-                    f"[{seg_start_t:06.2f} -- {(seg_start_t+commit_seconds):06.2f}] ({language}) "
-                )
-                output = prefix + output
-                seg_start_t += commit_seconds
-                width = os.get_terminal_size().columns
-                padding = max(0, width - len(output) - 4)
-                print("    " + output + " " * padding)
-                if should_detect_language:
-                    language = None
+                    printline(
+                        f"    [{format_t(seg_start_t)} -- {format_t(seg_start_t+seconds_to_commit)}] "
+                        f"({language}) {output}"
+                    )
+                seg_start_t += seconds_to_commit
+                segment = segment[samples_to_commit:]
             else:
-                segment_seconds = segment.size(0) / SAMPLE_RATE
-                output = f"({language}) {segment_seconds:.2f} seconds - " + result.text
-                width = os.get_terminal_size().columns
-                padding = max(0, width - len(output))
-                # print(" " * padding + output, end="\r")
-                print(output, end="\r")
-
-            if seg_start_t > 600:
-                print("Stop after 10 minutes.")
-                break
+                print(f"{segment.size(0)/SAMPLE_RATE:.2f}s ({language}) {output}", end="\r")
+            # endregion
+            output_timer.stop()
 
     except KeyboardInterrupt:
         print("\n\n")
         preproc_timer.report()
         resample_timer.report()
         decoding_timer.report()
+        output_timer.report()
