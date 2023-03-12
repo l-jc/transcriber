@@ -17,7 +17,9 @@
                 "--model",
                 "${input:pickModel}",
                 "--language",
-                "${input:pickLang}"
+                "${input:pickLang}",
+                "--task",
+                "${input:pickTask}"
             ]
         }
     ],
@@ -50,6 +52,16 @@
             "type": "promptString",
             "description": "Which language do you want to transcribe?",
             "default": "en"
-        }
+        },
+        {
+            "id": "pickTask",
+            "type": "pickString",
+            "description": "Which task do you want to perform?",
+            "options": [
+                "transcribe",
+                "translate"
+            ],
+            "default": "transcribe"
+        },
     ]
 }

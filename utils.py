@@ -102,6 +102,6 @@ def printline(output: str, end: str = None) -> None:
     width = os.get_terminal_size().columns
     padding = max(0, width - len(output))
     output += " " * padding
-    if len(output) > width:
-        output = output[: width - 3] + "..."
+    # if len(output) > width:
+    #     output = output[: width - 3] + "..."
     print(output, end=end)

@@ -35,6 +35,13 @@ if __name__ == "__main__":
         choices=tuple(LANGUAGES.keys()) + ("",),
         help="Language to transcribe. Defaults to multilingual",
     )
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="transcribe",
+        choices=["transcribe", "translate"],
+        help="Task to perform, transcribe or translate.",
+    )
     args = parser.parse_args()
 
     print(f"Recorder running P{os.getpid()}")
@@ -60,7 +67,7 @@ if __name__ == "__main__":
         proc = Process(
             target=w_run,
             name="Whisper",
-            args=(output_queue, ready, audio_device, args.model, args.language or None),
+            args=(output_queue, ready, audio_device, args.model, args.language or None, args.task),
             daemon=True,
         )
         proc.start()

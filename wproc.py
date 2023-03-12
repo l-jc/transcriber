@@ -105,6 +105,7 @@ def run(
     audio_device: DeviceWrapper,
     model_card: str,
     language: Optional[str],
+    task: str = "transcribe",
 ):
     """Subprocess to run rtt"""
     print(f"Whisper running P{os.getpid()}")
@@ -120,7 +121,7 @@ def run(
     inverted_time_precision = exact_div(SAMPLE_RATE, input_stride * HOP_LENGTH)
     print(f"Loaded model {model_card}")
 
-    tokenizer = get_tokenizer(model.is_multilingual, language=language, task="transcribe")
+    tokenizer = get_tokenizer(model.is_multilingual, language=language, task=task)
     print("Got tokenizer")
 
     resampler = torchaudio.transforms.Resample(
@@ -162,6 +163,7 @@ def run(
             mel = whisper.log_mel_spectrogram(segment_for_model).to(model.device)
             for temperature in TEMPERATURES:
                 options = whisper.DecodingOptions(
+                    task=task,
                     language=language,
                     temperature=temperature,
                     beam_size=BEAM_SIZE if temperature != 0.0 else None,
