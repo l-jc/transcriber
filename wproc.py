@@ -83,7 +83,7 @@ def commit(
     # use tail to detect
     tail_is_silent = False
     if segment.size(0) > DETECT_TAIL * SAMPLE_RATE:
-        tail = segment[min(3, DETECT_TAIL // 2) * SAMPLE_RATE :]
+        tail = segment[-min(3, DETECT_TAIL // 2) * SAMPLE_RATE :]
         mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(tail))
         tail_result = whisper.decode(
             vad_model, mel, whisper.DecodingOptions(language=result.language)
@@ -184,8 +184,6 @@ def run(
             )
             if language is None:
                 language = result.language
-            if samples_to_commit > 0 and should_detect_language:
-                language = None
             # endregion
 
             # region print output and update segment
@@ -205,6 +203,8 @@ def run(
                 segment = segment[samples_to_commit:]
             else:
                 print(f"{segment.size(0)/SAMPLE_RATE:05.2f}s ({language}) {output}", end="\r")
+            if samples_to_commit > 0 and should_detect_language:
+                language = None
             # endregion
             output_timer.stop()
 
