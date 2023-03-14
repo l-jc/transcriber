@@ -90,7 +90,7 @@ def commit(
         )
         if (
             tail_result.no_speech_prob > NO_SPEECH_THRESHOLD
-            and result.avg_logprob < LOGPROB_THRESHOLD
+            and tail_result.avg_logprob < LOGPROB_THRESHOLD
         ):
             tail_is_silent = True
 
@@ -171,7 +171,7 @@ def run(
                 result = whisper.decode(model, mel, options)
                 if (
                     result.compression_ratio < COMPRESSION_RATIO_THRESHOLD
-                    or result.no_speech_prob > NO_SPEECH_THRESHOLD
+                    and result.avg_logprob > LOGPROB_THRESHOLD
                 ):
                     break
             # endregion
