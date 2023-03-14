@@ -207,7 +207,7 @@ def run(
                 seg_start_t += seconds_to_commit
                 segment = segment[samples_to_commit:]
             else:
-                print(f"{segment.size(0)/SAMPLE_RATE:.2f}s ({language}) {output}", end="\r")
+                print(f"{segment.size(0)/SAMPLE_RATE:05.2f}s ({language}) {output}", end="\r")
             # endregion
             output_timer.stop()
 
