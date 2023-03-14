@@ -112,11 +112,8 @@ def run(
     print(f"Whisper running P{os.getpid()}")
     if language == "en":
         model_card += ".en"
-    model = whisper.load_model(model_card, device=torch.device(0))
-    vad_model = whisper.load_model(
-        "tiny.en" if language == "en" else "tiny",
-        device=torch.device(0),
-    )
+    model = whisper.load_model(model_card)
+    vad_model = whisper.load_model("tiny.en" if language == "en" else "tiny")
 
     input_stride = exact_div(N_FRAMES, model.dims.n_audio_ctx)  # mel frames per output token: 2
     inverted_time_precision = exact_div(SAMPLE_RATE, input_stride * HOP_LENGTH)
@@ -128,7 +125,7 @@ def run(
     resampler = torchaudio.transforms.Resample(
         audio_device.rate, SAMPLE_RATE, dtype=torch.float32
     ).to(model.device)
-    resampler(torch.zeros(audio_device.rate, dtype=torch.float32, device=torch.device(0)))
+    resampler(torch.zeros(audio_device.rate, dtype=torch.float32, device=model.device))
     print("Created resmpler")
 
     # Tell recorder ready to record
