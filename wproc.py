@@ -75,7 +75,8 @@ def commit(
         # option b. commit all segment
         t = tokens[consecutive[-1]] - tokenizer.timestamp_begin
         output = tokenizer.decode(tokens[: consecutive[-1]])
-        return exact_div(t.item() * SAMPLE_RATE, inverted_time_precision), output
+        remain = tokenizer.decode(tokens[consecutive[-1] :])
+        return exact_div(t.item() * SAMPLE_RATE, inverted_time_precision), (output, remain)
 
     if segment.size(0) > (CHUNK_LENGTH - RECOGNIZER_STEP) * SAMPLE_RATE:
         return segment.size(0), result.text
@@ -170,6 +171,11 @@ def run(
                 )
                 result = whisper.decode(model, mel, options)
                 if (
+                    result.no_speech_prob > NO_SPEECH_THRESHOLD
+                    and result.avg_logprob < LOGPROB_THRESHOLD
+                ):
+                    break
+                if (
                     result.compression_ratio < COMPRESSION_RATIO_THRESHOLD
                     and result.avg_logprob > LOGPROB_THRESHOLD
                 ):
@@ -195,10 +201,15 @@ def run(
                         end="\r",
                     )
                 else:
+                    remain = ""
+                    if isinstance(output, tuple):
+                        output, remain = output
+
                     printline(
                         f"  [{format_t(seg_start_t)} -- {format_t(seg_start_t+seconds_to_commit)}] "
                         f"({language}) {output}"
                     )
+                    print(f"{segment.size(0)/SAMPLE_RATE:05.2f}s ({language}) {remain}", end="\r")
                 seg_start_t += seconds_to_commit
                 segment = segment[samples_to_commit:]
             else:
