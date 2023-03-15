@@ -141,8 +141,8 @@ def run(
         ready.value = 1
 
     print("Start transcription")
-    preproc_timer = MyTimer("preprocessing")
-    resample_timer = MyTimer("resample")
+    preproc_timer = MyTimer("reading audio stream")
+    resample_timer = MyTimer("resampling")
     decoding_timer = MyTimer("decoding")
     output_timer = MyTimer("output")
     segment = None

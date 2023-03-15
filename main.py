@@ -119,7 +119,7 @@ if __name__ == "__main__":
             input_device_index=audio_device.index,
             stream_callback=callback,
         )
-        print("Start recording...\n\n")
+        print("Start recording...\n\nPress Ctrl+C to exit\n\n")
         # endregion
 
         try:
