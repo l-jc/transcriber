@@ -10,7 +10,7 @@ from whisper.tokenizer import LANGUAGES
 from whisper.utils import str2bool
 
 from wproc import run as w_run
-from utils import get_default_wasapi_device, DeviceType, printline, format_t
+from utils import get_default_wasapi_device, DeviceType, printline, format_t, srt_format_time
 from constants import DATA_FORMAT, RECORDER_BUFFER_SIZE, RECOGNIZER_STEP
 
 
@@ -58,7 +58,9 @@ if __name__ == "__main__":
 
     wave_file_ctx = wave.open("test.wav", "wb") if args.save_audio else contextlib.nullcontext()
 
-    with pyaudio.PyAudio() as p, wave_file_ctx as wave_file:
+    with pyaudio.PyAudio() as p, wave_file_ctx as wave_file, open(
+        "test.srt", "w", encoding="utf-8"
+    ) as srt_file:
 
         # region get audio device
         audio_device = get_default_wasapi_device(p, args.input)
@@ -121,14 +123,20 @@ if __name__ == "__main__":
         # endregion
 
         try:
+            i = 0
             while True:
                 time_info, language, output = output_queue.get()
                 start, t1, t2 = time_info
                 text1, text2 = output
                 if text1:
-                    printline(
-                        f"  [{format_t(start)} -- {format_t(start+t1)}] " f"({language}) {text1}"
-                    )
+                    printline(f"  [{format_t(start)} -- {format_t(start+t1)}] ({language}) {text1}")
+                    i += 1
+                    lines = [
+                        str(i) + "\n",
+                        f"{srt_format_time(start)} --> {srt_format_time(start+t1)}\n",
+                        text1 + "\n\n",
+                    ]
+                    srt_file.writelines(lines)
                 text2 = text2 or "NO SPEECH"
                 print(f"{t2:05.2f}s ({language}) {text2}", end="\r")
         except KeyboardInterrupt:

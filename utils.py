@@ -3,6 +3,7 @@ import os
 from enum import Enum, auto
 import functools
 import time
+import math
 import pyaudiowpatch as pyaudio
 
 
@@ -95,6 +96,17 @@ def format_t(seconds: float) -> str:
     m = seconds // 60
     s = seconds % 60
     return f"{m:02d}:{s:02d}"
+
+
+def srt_format_time(t: float) -> str:
+    """SRT format time"""
+    ms = round((t - math.floor(t)) * 1000)
+    t = math.floor(t)
+    h = t // 3600
+    t = t % 3600
+    m = t // 60
+    s = t % 60
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
 def printline(output: str, end: str = None) -> None:
