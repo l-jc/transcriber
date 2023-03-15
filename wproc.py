@@ -90,7 +90,7 @@ def commit(
     # use tail to detect
     tail_is_silent = False
     if segment.size(0) > DETECT_TAIL * SAMPLE_RATE:
-        tail = segment[-min(3, DETECT_TAIL // 2) * SAMPLE_RATE :]
+        tail = segment[-min(3, int(DETECT_TAIL / 2)) * SAMPLE_RATE :]
         mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(tail))
         tail_result = whisper.decode(
             vad_model, mel, whisper.DecodingOptions(language=result.language)
