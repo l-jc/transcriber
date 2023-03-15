@@ -212,6 +212,7 @@ def run(
                     print(f"{segment.size(0)/SAMPLE_RATE:05.2f}s ({language}) {remain}", end="\r")
                 seg_start_t += seconds_to_commit
                 segment = segment[samples_to_commit:]
+                # prompt = output or None
             else:
                 print(f"{segment.size(0)/SAMPLE_RATE:05.2f}s ({language}) {output}", end="\r")
             if samples_to_commit > 0 and should_detect_language:
