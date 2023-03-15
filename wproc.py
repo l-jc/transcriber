@@ -1,5 +1,6 @@
 # pylint: disable=no-member
 # pylint: disable=not-callable
+# pylint: disable=invalid-name
 """
 Whisper process
 
@@ -37,17 +38,16 @@ from constants import (
     TEMPERATURES,
     BEAM_SIZE,
 )
-from utils import MyTimer, DeviceWrapper, format_t, printline
+from utils import MyTimer, DeviceWrapper
 
 
-def get_audio_from_queue(output_queue: Queue, channels: int, device: torch.device) -> torch.Tensor:
+def get_audio_from_queue(audio_queue: Queue, channels: int, device: torch.device) -> torch.Tensor:
     """get audio from buffer"""
     data = b""
     n_buffer = 0
     while n_buffer < RECOGNIZER_STEP / RECORDER_BUFFER_SIZE:
-        while not output_queue.empty():
-            data += output_queue.get()
-            n_buffer += 1
+        data += audio_queue.get()
+        n_buffer += 1
     waveform = np.frombuffer(data, np.int16).flatten().astype(np.float32)
     waveform = waveform[::channels]
     waveform = torch.from_numpy(waveform).to(device) / 32768.0
@@ -60,10 +60,15 @@ def commit(
     tokenizer: Tokenizer,
     inverted_time_precision: float,
     vad_model: Whisper,
-) -> Tuple[int, str]:
-    """Return the number of samples to commit and the committed text"""
+) -> Tuple[int, Tuple[str, str]]:
+    """Return the number of samples to commit and the committed text
+    int: samples to commit
+    Tuple:
+        str: committed text
+        str: uncommitted text
+    """
     if result.no_speech_prob > NO_SPEECH_THRESHOLD and result.avg_logprob < LOGPROB_THRESHOLD:
-        return segment.size(0), ""
+        return segment.size(0), ("", "")
 
     tokens = torch.tensor(result.tokens)
     timestamp_tokens: torch.Tensor = tokens.ge(tokenizer.timestamp_begin)
@@ -72,6 +77,7 @@ def commit(
         # option a. commit first segment
         # t = tokens[consecutive[0]] - tokenizer.timestamp_begin
         # output = tokenizer.decode(tokens[: consecutive[0]])
+        # remain = tokenizer.decode(tokens[consecutive[0] :])
         # option b. commit all segment
         t = tokens[consecutive[-1]] - tokenizer.timestamp_begin
         output = tokenizer.decode(tokens[: consecutive[-1]])
@@ -79,7 +85,7 @@ def commit(
         return exact_div(t.item() * SAMPLE_RATE, inverted_time_precision), (output, remain)
 
     if segment.size(0) > (CHUNK_LENGTH - RECOGNIZER_STEP) * SAMPLE_RATE:
-        return segment.size(0), result.text
+        return segment.size(0), (result.text, "")
 
     # use tail to detect
     tail_is_silent = False
@@ -96,12 +102,13 @@ def commit(
             tail_is_silent = True
 
     if tail_is_silent:
-        return segment.size(0), result.text
+        return segment.size(0), (result.text, "")
 
-    return 0, result.text
+    return 0, ("", result.text)
 
 
 def run(
+    audio_queue: Queue,
     output_queue: Queue,
     ready: Value,
     audio_device: DeviceWrapper,
@@ -146,7 +153,7 @@ def run(
         while True:
             preproc_timer.start()
             # region get data from audio buffer
-            waveform = get_audio_from_queue(output_queue, audio_device.channels, model.device)
+            waveform = get_audio_from_queue(audio_queue, audio_device.channels, model.device)
             # endregion
             preproc_timer.stop()
 
@@ -193,30 +200,15 @@ def run(
             # endregion
 
             # region print output and update segment
+            total_seconds = segment.size(0) / SAMPLE_RATE
+            seconds_to_commit = samples_to_commit / SAMPLE_RATE
+            time_info = (seg_start_t, seconds_to_commit, total_seconds - seconds_to_commit)
+            output_queue.put((time_info, language, output))
             if samples_to_commit > 0:
-                seconds_to_commit = samples_to_commit / SAMPLE_RATE
-                if output == "":
-                    printline(
-                        f"{segment.size(0)/SAMPLE_RATE:.2f}s NO SPEECH {result.no_speech_prob:.2f}",
-                        end="\r",
-                    )
-                else:
-                    remain = ""
-                    if isinstance(output, tuple):
-                        output, remain = output
-
-                    printline(
-                        f"  [{format_t(seg_start_t)} -- {format_t(seg_start_t+seconds_to_commit)}] "
-                        f"({language}) {output}"
-                    )
-                    print(f"{segment.size(0)/SAMPLE_RATE:05.2f}s ({language}) {remain}", end="\r")
                 seg_start_t += seconds_to_commit
                 segment = segment[samples_to_commit:]
-                # prompt = output or None
-            else:
-                print(f"{segment.size(0)/SAMPLE_RATE:05.2f}s ({language}) {output}", end="\r")
-            if samples_to_commit > 0 and should_detect_language:
-                language = None
+                if should_detect_language:
+                    language = None
             # endregion
             output_timer.stop()
 
